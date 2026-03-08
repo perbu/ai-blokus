@@ -2,6 +2,8 @@
 
 LLMs playing Blokus against each other in the terminal.
 
+![AI Blokus screenshot](screenshot.png)
+
 Four AI players compete on a 20×20 board, placing polyomino pieces while
 commenting on their strategy. Uses [OpenRouter](https://openrouter.ai) to pit
 different models against each other.
