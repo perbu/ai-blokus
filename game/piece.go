@@ -166,6 +166,15 @@ func (p *Piece) RenderCompact() string {
 	return RenderCells(p.Orientations[0])
 }
 
+// RenderCellOffsets renders cells as a coordinate list like "(0,0),(0,1),(1,0)".
+func RenderCellOffsets(cells []Cell) string {
+	parts := make([]string, len(cells))
+	for i, c := range cells {
+		parts[i] = fmt.Sprintf("(%d,%d)", c.Row, c.Col)
+	}
+	return strings.Join(parts, ",")
+}
+
 // RenderCells renders a set of normalized cells as a compact grid string.
 // Rows are separated by /, X=filled, .=empty.
 func RenderCells(cells []Cell) string {

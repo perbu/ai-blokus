@@ -59,6 +59,9 @@ func (p *LLMPlayer) Model() string { return p.model }
 // GetMove requests a move from the LLM. On failure, retries up to 2 times with the error.
 func (p *LLMPlayer) GetMove(ctx context.Context, g *game.Game) (*Move, error) {
 	const maxRetries = 2
+	turn := g.TurnNumber + 1
+
+	debug.Log("[turn %d] [%s/%s] requesting move", turn, p.name, p.model)
 
 	move, lastErr := p.tryMove(ctx, g, nil)
 	if lastErr == nil {
@@ -66,14 +69,14 @@ func (p *LLMPlayer) GetMove(ctx context.Context, g *game.Game) (*Move, error) {
 	}
 
 	for attempt := 1; attempt <= maxRetries; attempt++ {
-		debug.Log("[%s/%s] retry %d/%d after error: %v", p.name, p.model, attempt, maxRetries, lastErr)
+		debug.Log("[turn %d] [%s/%s] retry %d/%d after error: %v", turn, p.name, p.model, attempt, maxRetries, lastErr)
 		move, lastErr = p.tryMove(ctx, g, lastErr)
 		if lastErr == nil {
 			return move, nil
 		}
 	}
 
-	debug.Log("[%s/%s] all %d retries failed: %v", p.name, p.model, maxRetries, lastErr)
+	debug.Log("[turn %d] [%s/%s] all %d retries failed: %v", turn, p.name, p.model, maxRetries, lastErr)
 	return move, lastErr
 }
 
@@ -107,9 +110,15 @@ func (p *LLMPlayer) tryMove(ctx context.Context, g *game.Game, prevErr error) (*
 		)
 	}
 
-	prompt := messages[1].Content
-	debug.Log("[%s/%s] sending prompt (%d chars, retry=%v):\n%s",
-		p.name, p.model, len(prompt), prevErr != nil, prompt)
+	if prevErr != nil {
+		retryMsg := messages[len(messages)-1].Content
+		debug.Log("[%s/%s] sending retry prompt (%d chars):\n%s",
+			p.name, p.model, len(retryMsg), retryMsg)
+	} else {
+		prompt := messages[1].Content
+		debug.Log("[%s/%s] sending prompt (%d chars):\n%s",
+			p.name, p.model, len(prompt), prompt)
+	}
 
 	stream, err := p.client.CreateChatCompletionStream(ctx, openai.ChatCompletionRequest{
 		Model:       p.model,
@@ -192,6 +201,9 @@ func (p *LLMPlayer) resolveAndValidate(g *game.Game, move *Move) error {
 	}
 	move.Cells = cells
 
+	debug.Log("[%s/%s] resolved cells: anchor=%v + orientation %d → %v",
+		p.name, p.model, move.Anchor, move.Orientation, cells)
+
 	// Validate using the game engine
 	gameCells := move.ToCells()
 	isFirst := player.PiecesPlaced == 0
@@ -209,9 +221,15 @@ To pass (only when you have no valid moves):
 
 HOW MOVES WORK:
 - Pick a piece from your remaining pieces
-- Pick an orientation by its index number (each piece lists its orientations)
-- Pick an anchor point [row, col] — each cell in the orientation is offset by the anchor
-- Example: orientation cells are (0,0),(0,1),(1,0) with anchor [3,5] → placed at (3,5),(3,6),(4,5)
+- Pick an orientation by its index number (each piece lists its orientations with cell offsets)
+- Pick an anchor point [row, col] — each cell offset in the orientation is ADDED to the anchor to get the board position
+- Formula: board_cell = (anchor_row + offset_row, anchor_col + offset_col)
+- REVERSE: to place orientation cell (dr,dc) onto board cell (R,C), set anchor to [R-dr, C-dc]
+
+EXAMPLE (forward): orientation offsets (0,0),(0,1),(1,0) with anchor [3,5] → placed at (3,5),(3,6),(4,5)
+EXAMPLE (reverse): you need to cover board cell (0,19). Orientation has a cell at offset (0,2). Set anchor to [0-0, 19-2] = [0,17]. Then (0,2)+[0,17] = (0,19). ✓
+
+IMPORTANT: All placed cells must be within bounds (rows 0-19, cols 0-19). If your piece has 3 rows and you anchor at row 18, row offsets 0,1,2 give rows 18,19,20 — row 20 is OUT OF BOUNDS. Adjust the anchor so all cells stay on the board.
 
 RULES:
 - Your FIRST piece must cover your starting corner cell
@@ -256,7 +274,7 @@ func (p *LLMPlayer) buildPrompt(g *game.Game) string {
 		piece := player.Remaining[name]
 		fmt.Fprintf(&sb, "  %s (%d cells, %d orientations):\n", name, piece.Size, len(piece.Orientations))
 		for i, orient := range piece.Orientations {
-			fmt.Fprintf(&sb, "    #%d: %s\n", i, game.RenderCells(orient))
+			fmt.Fprintf(&sb, "    #%d: %s  offsets: %s\n", i, game.RenderCells(orient), game.RenderCellOffsets(orient))
 		}
 	}
 
