@@ -300,20 +300,26 @@ func (m Model) View() tea.View {
 func (m Model) renderBoard() string {
 	var sb strings.Builder
 
-	sb.WriteString(titleStyle.Render("  BLOKUS"))
+	title := "  BLOKUS"
+	if m.game.Mode == game.ModeDuo {
+		title = "  BLOKUS DUO"
+	}
+	sb.WriteString(titleStyle.Render(title))
 	sb.WriteString("\n")
+
+	boardSize := m.game.Board.Size
 
 	// Column headers
 	sb.WriteString("   ")
-	for c := 0; c < game.BoardSize; c++ {
+	for c := 0; c < boardSize; c++ {
 		fmt.Fprintf(&sb, "%2d", c%10)
 	}
 	sb.WriteString("\n")
 
-	for r := 0; r < game.BoardSize; r++ {
+	for r := 0; r < boardSize; r++ {
 		fmt.Fprintf(&sb, "%2d ", r)
-		for c := 0; c < game.BoardSize; c++ {
-			cell := m.game.Board[r][c]
+		for c := 0; c < boardSize; c++ {
+			cell := m.game.Board.Grid[r][c]
 			if cell == 0 {
 				sb.WriteString(dimStyle.Render("··"))
 			} else {

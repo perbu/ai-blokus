@@ -86,7 +86,7 @@ func (p *LLMPlayer) GetMove(ctx context.Context, g *game.Game) (*Move, error) {
 // can retry or log the attempt.
 func (p *LLMPlayer) tryMove(ctx context.Context, g *game.Game, prevErr error) (*Move, error) {
 	messages := []openai.ChatCompletionMessage{
-		{Role: openai.ChatMessageRoleSystem, Content: systemPrompt()},
+		{Role: openai.ChatMessageRoleSystem, Content: systemPrompt(g.Board.Size)},
 		{Role: openai.ChatMessageRoleUser, Content: p.buildPrompt(g)},
 	}
 
@@ -102,10 +102,10 @@ func (p *LLMPlayer) tryMove(ctx context.Context, g *game.Game, prevErr error) (*
 					"Your previous move was INVALID: %s\n\nPlease try again. Double-check that:\n"+
 						"1. The piece name is one of your remaining pieces\n"+
 						"2. The orientation index is valid for that piece\n"+
-						"3. The anchor places all cells on the board (0-19) and on empty squares\n"+
+						"3. The anchor places all cells on the board (0-%d) and on empty squares\n"+
 						"4. At least one placed cell is a diagonal touch point\n"+
 						"5. No placed cell is orthogonally adjacent to your existing pieces\n\n"+
-						"Respond with corrected JSON only.", prevErr),
+						"Respond with corrected JSON only.", prevErr, g.Board.Size-1),
 			},
 		)
 	}
@@ -207,11 +207,12 @@ func (p *LLMPlayer) resolveAndValidate(g *game.Game, move *Move) error {
 	// Validate using the game engine
 	gameCells := move.ToCells()
 	isFirst := player.PiecesPlaced == 0
-	return g.Board.ValidatePlacement(player.ID, gameCells, isFirst)
+	return g.Board.ValidatePlacement(player.ID, gameCells, isFirst, player.StartCell)
 }
 
-func systemPrompt() string {
-	return `You are an expert Blokus player. Output ONLY a JSON object. No explanation, no reasoning, no other text.
+func systemPrompt(boardSize int) string {
+	maxIdx := boardSize - 1
+	return fmt.Sprintf(`You are an expert Blokus player. Output ONLY a JSON object. No explanation, no reasoning, no other text.
 
 To place a piece:
 {"piece":"PIECE_NAME","anchor":[row,col],"orientation":INDEX,"comment":"..."}
@@ -227,32 +228,35 @@ HOW MOVES WORK:
 - REVERSE: to place orientation cell (dr,dc) onto board cell (R,C), set anchor to [R-dr, C-dc]
 
 EXAMPLE (forward): orientation offsets (0,0),(0,1),(1,0) with anchor [3,5] → placed at (3,5),(3,6),(4,5)
-EXAMPLE (reverse): you need to cover board cell (0,19). Orientation has a cell at offset (0,2). Set anchor to [0-0, 19-2] = [0,17]. Then (0,2)+[0,17] = (0,19). ✓
+EXAMPLE (reverse): you need to cover board cell (0,%d). Orientation has a cell at offset (0,2). Set anchor to [0-0, %d-2] = [0,%d]. Then (0,2)+[0,%d] = (0,%d). ✓
 
-IMPORTANT: All placed cells must be within bounds (rows 0-19, cols 0-19). If your piece has 3 rows and you anchor at row 18, row offsets 0,1,2 give rows 18,19,20 — row 20 is OUT OF BOUNDS. Adjust the anchor so all cells stay on the board.
+IMPORTANT: All placed cells must be within bounds (rows 0-%d, cols 0-%d). If your piece has 3 rows and you anchor at row %d, row offsets 0,1,2 give rows %d,%d,%d — row %d is OUT OF BOUNDS. Adjust the anchor so all cells stay on the board.
 
 RULES:
-- Your FIRST piece must cover your starting corner cell
+- Your FIRST piece must cover your starting position cell
 - Every subsequent piece must touch at least one of your existing pieces DIAGONALLY (corner-to-corner)
 - Your pieces must NEVER share an edge (horizontally/vertically adjacent) with your own pieces
 - Your pieces CAN share edges with opponents' pieces
 - Every cell must be empty (shown as . on the board)
 
-The prompt shows DIAGONAL TOUCH POINTS — at least one cell of your placed piece must land on one of these positions. Use them to guide your anchor choice.`
+The prompt shows DIAGONAL TOUCH POINTS — at least one cell of your placed piece must land on one of these positions. Use them to guide your anchor choice.`,
+		maxIdx, maxIdx, maxIdx-2, maxIdx-2, maxIdx,
+		maxIdx, maxIdx,
+		maxIdx-1, maxIdx-1, maxIdx, maxIdx+1, maxIdx+1)
 }
 
 func (p *LLMPlayer) buildPrompt(g *game.Game) string {
 	player := g.Players[p.playerID-1]
 	var sb strings.Builder
 
-	fmt.Fprintf(&sb, "You are %s (Player %d). Your starting corner is (%d,%d).\n",
-		player.Color, player.ID, player.Corner.Row, player.Corner.Col)
+	fmt.Fprintf(&sb, "You are %s (Player %d). Your starting position is (%d,%d).\n",
+		player.Color, player.ID, player.StartCell.Row, player.StartCell.Col)
 
 	if player.PiecesPlaced == 0 {
 		fmt.Fprintf(&sb, "This is your FIRST move. Your piece MUST cover cell (%d,%d).\n",
-			player.Corner.Row, player.Corner.Col)
+			player.StartCell.Row, player.StartCell.Col)
 		fmt.Fprintf(&sb, "Choose an orientation, then set anchor so that one cell lands on (%d,%d).\n",
-			player.Corner.Row, player.Corner.Col)
+			player.StartCell.Row, player.StartCell.Col)
 	} else {
 		// Show attachment points
 		points := g.Board.AttachmentPoints(player.ID)

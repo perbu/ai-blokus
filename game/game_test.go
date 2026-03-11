@@ -91,35 +91,38 @@ func TestNoPieceDuplicates(t *testing.T) {
 }
 
 func TestFirstMoveMustCoverCorner(t *testing.T) {
-	var b Board
-	// Player 1 corner is (0,0)
-	cells := []Cell{{0, 1}, {0, 2}, {0, 3}} // I3 not covering corner
-	err := b.ValidatePlacement(1, cells, true)
+	b := NewBoard(ClassicBoardSize)
+	startCell := Cell{0, 0} // Player 1 corner
+
+	// I3 not covering corner
+	cells := []Cell{{0, 1}, {0, 2}, {0, 3}}
+	err := b.ValidatePlacement(1, cells, true, startCell)
 	if err == nil {
 		t.Error("expected error for first move not covering corner")
 	}
 
-	cells = []Cell{{0, 0}, {0, 1}, {0, 2}} // I3 covering corner
-	err = b.ValidatePlacement(1, cells, true)
+	// I3 covering corner
+	cells = []Cell{{0, 0}, {0, 1}, {0, 2}}
+	err = b.ValidatePlacement(1, cells, true, startCell)
 	if err != nil {
 		t.Errorf("expected valid first move, got: %v", err)
 	}
 }
 
 func TestEdgeAdjacency(t *testing.T) {
-	var b Board
-	b[0][0] = 1 // Player 1 piece at (0,0)
+	b := NewBoard(ClassicBoardSize)
+	b.Grid[0][0] = 1 // Player 1 piece at (0,0)
 
 	// Try placing adjacent (edge-sharing) — should fail
 	cells := []Cell{{0, 1}} // right next to (0,0)
-	err := b.ValidatePlacement(1, cells, false)
+	err := b.ValidatePlacement(1, cells, false, Cell{0, 0})
 	if err == nil {
 		t.Error("expected error for edge-adjacent placement")
 	}
 
 	// Diagonal is OK
 	cells = []Cell{{1, 1}}
-	err = b.ValidatePlacement(1, cells, false)
+	err = b.ValidatePlacement(1, cells, false, Cell{0, 0})
 	if err != nil {
 		t.Errorf("expected valid diagonal placement, got: %v", err)
 	}
@@ -144,5 +147,55 @@ func TestMatchesOrientation(t *testing.T) {
 	matched, _ = pieces["I3"].MatchesOrientation([]Cell{{5, 5}, {5, 6}, {6, 5}})
 	if matched {
 		t.Error("expected L-shape to NOT match I3")
+	}
+}
+
+func TestDuoBoard(t *testing.T) {
+	g := NewGame(ModeDuo, 2)
+	if g.Board.Size != DuoBoardSize {
+		t.Errorf("expected board size %d, got %d", DuoBoardSize, g.Board.Size)
+	}
+	if g.NumPlayers != 2 {
+		t.Errorf("expected 2 players, got %d", g.NumPlayers)
+	}
+
+	// Check starting positions
+	if g.Players[0].StartCell != (Cell{4, 4}) {
+		t.Errorf("expected player 1 start at (4,4), got %v", g.Players[0].StartCell)
+	}
+	if g.Players[1].StartCell != (Cell{9, 9}) {
+		t.Errorf("expected player 2 start at (9,9), got %v", g.Players[1].StartCell)
+	}
+
+	// First move must cover starting position
+	cells := []Cell{{4, 4}, {4, 5}, {4, 6}}
+	err := g.Board.ValidatePlacement(1, cells, true, g.Players[0].StartCell)
+	if err != nil {
+		t.Errorf("expected valid first move covering (4,4), got: %v", err)
+	}
+
+	// First move NOT covering starting position should fail
+	cells = []Cell{{0, 0}, {0, 1}, {0, 2}}
+	err = g.Board.ValidatePlacement(1, cells, true, g.Players[0].StartCell)
+	if err == nil {
+		t.Error("expected error for first move not covering starting position")
+	}
+}
+
+func TestClassicBoard(t *testing.T) {
+	g := NewGame(ModeClassic, 4)
+	if g.Board.Size != ClassicBoardSize {
+		t.Errorf("expected board size %d, got %d", ClassicBoardSize, g.Board.Size)
+	}
+	if g.NumPlayers != 4 {
+		t.Errorf("expected 4 players, got %d", g.NumPlayers)
+	}
+
+	// Check corner starting positions
+	if g.Players[0].StartCell != (Cell{0, 0}) {
+		t.Errorf("expected player 1 start at (0,0), got %v", g.Players[0].StartCell)
+	}
+	if g.Players[1].StartCell != (Cell{0, 19}) {
+		t.Errorf("expected player 2 start at (0,19), got %v", g.Players[1].StartCell)
 	}
 }

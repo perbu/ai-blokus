@@ -2,11 +2,42 @@ package game
 
 import "fmt"
 
+// GameMode determines the board size and starting positions.
+type GameMode int
+
+const (
+	ModeClassic GameMode = iota // 20x20, 2 or 4 players, corners
+	ModeDuo                     // 14x14, 2 players, fixed start points
+)
+
+const (
+	ClassicBoardSize = 20
+	DuoBoardSize     = 14
+)
+
+// StartingCells returns the starting positions for each player in the given mode.
+func StartingCells(mode GameMode, numPlayers int) map[int]Cell {
+	if mode == ModeDuo {
+		return map[int]Cell{
+			1: {4, 4},
+			2: {9, 9},
+		}
+	}
+	// Classic: corners
+	size := ClassicBoardSize
+	return map[int]Cell{
+		1: {0, 0},
+		2: {0, size - 1},
+		3: {size - 1, size - 1},
+		4: {size - 1, 0},
+	}
+}
+
 // PlayerState tracks a single player's state.
 type PlayerState struct {
 	ID              int
 	Color           string
-	Corner          Cell
+	StartCell       Cell
 	Remaining       map[string]*Piece
 	PiecesPlaced    int
 	CellsRemaining  int
@@ -34,12 +65,19 @@ type Game struct {
 	Log         []LogEntry
 	GameOver    bool
 	PieceMap    map[string]*Piece
+	Mode        GameMode
 }
 
-// NewGame creates a new Blokus game with the specified number of players.
-func NewGame(numPlayers int) *Game {
+// NewGame creates a new Blokus game with the specified mode and number of players.
+func NewGame(mode GameMode, numPlayers int) *Game {
 	colors := []string{"Red", "Blue", "Yellow", "Green"}
 	allPieces := PieceMap()
+	starts := StartingCells(mode, numPlayers)
+
+	boardSize := ClassicBoardSize
+	if mode == ModeDuo {
+		boardSize = DuoBoardSize
+	}
 
 	players := make([]*PlayerState, numPlayers)
 	for i := 0; i < numPlayers; i++ {
@@ -52,16 +90,18 @@ func NewGame(numPlayers int) *Game {
 		players[i] = &PlayerState{
 			ID:             i + 1,
 			Color:          colors[i],
-			Corner:         PlayerCorners[i+1],
+			StartCell:      starts[i+1],
 			Remaining:      remaining,
 			CellsRemaining: totalCells,
 		}
 	}
 
 	return &Game{
+		Board:      NewBoard(boardSize),
 		Players:    players,
 		NumPlayers: numPlayers,
 		PieceMap:   allPieces,
+		Mode:       mode,
 	}
 }
 
@@ -87,7 +127,7 @@ func (g *Game) ApplyMove(pieceName string, cells []Cell) error {
 
 	// Check placement is legal
 	isFirst := player.PiecesPlaced == 0
-	if err := g.Board.ValidatePlacement(player.ID, cells, isFirst); err != nil {
+	if err := g.Board.ValidatePlacement(player.ID, cells, isFirst, player.StartCell); err != nil {
 		return err
 	}
 
@@ -171,7 +211,7 @@ func (g *Game) CheckPlayerCanMove() bool {
 	}
 	isFirst := player.PiecesPlaced == 0
 	pieces := player.RemainingPieceSlice()
-	if !g.Board.HasValidMove(player.ID, pieces, isFirst) {
+	if !g.Board.HasValidMove(player.ID, pieces, isFirst, player.StartCell) {
 		player.Eliminated = true
 		return false
 	}
